@@ -58,6 +58,23 @@ and switches Herdr to the `preview` layout. Run it again to update.
   in your default browser, **Close** clears the panel.
 - Click inside the page to scroll, click links, and use the page (it is a real browser).
 
+## Tuning
+
+`hp-browser` reads `~/.config/herdr-preview/env` (a shell file) before starting
+terminal-browser. Useful settings:
+
+```sh
+# Herdr reports its terminal size in logical pixels; herdr-preview renders at 1x
+# so pages show at normal size. 2 renders sharper but twice as large.
+PIXEL_DISPLAY_SCALE=1
+# How frames reach Herdr: auto (default), shared, file or inline.
+TERMINAL_BROWSER_FRAMES=auto
+# How frames are sent: auto (default) or full. "patched" draws wrong in Herdr desktop 0.1.16.
+TERMINAL_BROWSER_PRESENT=auto
+```
+
+Delete the file to go back to the defaults. Changes apply to the next preview.
+
 ## Notes
 
 - herdr-preview sets `TERMINAL_BROWSER_NO_TELEMETRY=1` for the browsers it starts.

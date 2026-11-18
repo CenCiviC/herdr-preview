@@ -7,6 +7,13 @@
 # needs the terminal to itself); a small watcher ends it when the state file
 # changes (a new file, or the same file again to reload), and the loop goes on.
 export TERMINAL_BROWSER_NO_TELEMETRY="${TERMINAL_BROWSER_NO_TELEMETRY:-1}"
+# Herdr reports the terminal's size in logical pixels and shows kitty images at
+# that size, so the page must not be scaled again for a Retina display: without
+# this, terminal-browser applies the display's 2x and everything shows twice as
+# large, in a viewport half as wide (a phone layout).
+# Overrides, e.g. TERMINAL_BROWSER_FRAMES=file (see README).
+[ -f "$HOME/.config/herdr-preview/env" ] && . "$HOME/.config/herdr-preview/env"
+export PIXEL_DISPLAY_SCALE="${PIXEL_DISPLAY_SCALE:-1}"
 state="${HERDR_PREVIEW_STATE:-$HOME/Library/Caches/herdr-preview/target}"
 dir="$(dirname "$state")"
 mkdir -p "$dir"
