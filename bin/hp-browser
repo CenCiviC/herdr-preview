@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# hp-browser: the long-lived program behind the Preview panel's terminal block.
+#
+# Herdr removes a layout terminal block from the layout when its program ends,
+# so this never exits. It watches a state file ("<seq>\t<path>") written by the
+# hp-preview mod and runs terminal-browser on that path in the foreground (it
+# needs the terminal to itself); a small watcher ends it when the state file
+# changes (a new file, or the same file again to reload), and the loop goes on.
+export TERMINAL_BROWSER_NO_TELEMETRY="${TERMINAL_BROWSER_NO_TELEMETRY:-1}"
+state="${HERDR_PREVIEW_STATE:-$HOME/Library/Caches/herdr-preview/target}"
+dir="$(dirname "$state")"
+mkdir -p "$dir"
+pidfile="$dir/browser.$$.pid"
+trap 'rm -f "$pidfile"' EXIT
+
+# Keys belong to terminal-browser; a stray ^C must not end the panel.
+trap '' INT QUIT TSTP
+
+read_state() { cat "$state" 2>/dev/null || true; }
+
+clear_screen() {
+  # Delete kitty images left by the previous page, clear, home, hide cursor.
+  printf '\033_Ga=d\033\\\033[2J\033[3J\033[H\033[?25l'
+}
+
+hint() {
+  clear_screen
+  printf '\n  \033[1mPreview\033[0m\n\n'
+  if [ -n "${1:-}" ]; then printf '  \033[2m%s\033[0m\n\n' "$1"; fi
+  printf '  \033[2mOpen an .html or .md file in Files and press Preview,\033[0m\n'
+  printf '  \033[2mor run:\033[0m  hp-preview open <file>\n'
+}
+
+wait_for_change() {
+  local seen="$1"
+  while [ "$(read_state)" = "$seen" ]; do sleep 0.25; done
+}
+
+hint
+current="$(read_state)"
+# A target already set when the panel starts is shown.
+[ -n "${current#*$'\t'}" ] && [ "$current" != "${current#*$'\t'}" ] || wait_for_change "$current"
+
+while :; do
+  current="$(read_state)"
+  target="${current#*$'\t'}"
+  if [ -z "$target" ] || [ "$target" = "$current" ]; then
+    hint
+    wait_for_change "$current"
+    continue
+  fi
+
+  attempts=0
+  while :; do
+    clear_screen
+    rm -f "$pidfile"
+    # Ends terminal-browser as soon as the state file changes.
+    (
+      wait_for_change "$current"
+      for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$pidfile" ] && break; sleep 0.1; done
+      pid="$(cat "$pidfile" 2>/dev/null)"
+      [ -n "$pid" ] && kill "$pid" 2>/dev/null
+      sleep 1
+      [ -n "$pid" ] && kill -9 "$pid" 2>/dev/null
+    ) &
+    watcher=$!
+    started=$SECONDS
+    bash -c 'echo $$ > "$1"; exec terminal-browser open "$2" --no-merge' _ "$pidfile" "$target"
+    kill "$watcher" 2>/dev/null
+    wait "$watcher" 2>/dev/null
+    [ "$(read_state)" != "$current" ] && break        # switched: show the new state
+    # A quick exit is usually the graphics probe going unanswered while the
+    # block was (re)attaching: try again a few times.
+    if [ $((SECONDS - started)) -lt 4 ] && [ "$attempts" -lt 5 ]; then
+      attempts=$((attempts + 1))
+      sleep 0.5
+      continue
+    fi
+    hint "Closed $(basename "$target")."
+    wait_for_change "$current"
+    break
+  done
+done

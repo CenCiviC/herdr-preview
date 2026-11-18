@@ -1,0 +1,13 @@
+herdr-preview
+Copyright 2026 CenCiviC
+
+mods/hp-files and mods/hp-tabs are modified copies of the `files` and `tabs`
+mods shipped with Herdr desktop (https://github.com/herdrdev/herdr-app),
+licensed under the Apache License 2.0.
+
+mods/hp-preview/vendor/marked.min.js is marked (https://github.com/markedjs/marked),
+MIT License; see mods/hp-preview/vendor/LICENSE-marked.md.
+
+mods/hp-preview/vendor/github-markdown-*.css is github-markdown-css
+(https://github.com/sindresorhus/github-markdown-css), MIT License; see
+mods/hp-preview/vendor/LICENSE-github-markdown-css.
