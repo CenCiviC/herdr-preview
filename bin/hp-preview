@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
-# hp-preview open <file>   Show an .html/.md/.svg file in Herdr's Preview panel.
+# hp-preview open <file|url>   Show an .html/.md/.svg file or a web page in Herdr's Preview panel.
 # hp-preview close         Close the preview.
 set -euo pipefail
 dir="$HOME/Library/Caches/herdr-preview"
-usage() { echo "usage: hp-preview open <file> | hp-preview close" >&2; exit 2; }
+usage() { echo "usage: hp-preview open <file|url> | hp-preview close" >&2; exit 2; }
 [ $# -ge 1 ] || usage
 mkdir -p "$dir"
 case "$1" in
   open)
     [ $# -eq 2 ] || usage
-    [ -f "$2" ] || { echo "hp-preview: no such file: $2" >&2; exit 1; }
-    file="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")"
+    case "$2" in
+      http://*|https://*) file="$2" ;;
+      *)
+        [ -f "$2" ] || { echo "hp-preview: no such file: $2" >&2; exit 1; }
+        file="$(cd "$(dirname "$2")" && pwd)/$(basename "$2")" ;;
+    esac
     action=open ;;
   close) file=""; action=close ;;
   *) usage ;;

@@ -53,7 +53,7 @@ and switches Herdr to the `preview` layout. Run it again to update.
 ## Use
 
 - **Files → open an `.html` or `.md` file → Preview.** The panel switches to Preview.
-- **From a terminal or an agent:** `hp-preview open docs/plan.html`
+- **From a terminal or an agent:** `hp-preview open docs/plan.html` (a URL works too: `hp-preview open http://localhost:3000`)
 - Saving the file re-renders it. **Reload** forces it, **Browser** opens the file
   in your default browser, **Close** clears the panel.
 - Click inside the page to scroll, click links, and use the page (it is a real browser).

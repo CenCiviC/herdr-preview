@@ -23,6 +23,7 @@ const REQUEST = "hp-preview.request";
 const MD = new Set(["md", "markdown", "mdown", "mkd", "mdx"]);
 const FRESH_MS = 10000;
 
+const isUrl = (p) => /^https?:\/\//i.test(p ?? "");
 const ext = (p) => (p.includes(".") ? p.split(".").pop().toLowerCase() : "");
 const dirname = (p) => p.replace(/\/[^/]*$/, "") || "/";
 const basename = (p) => p.split("/").pop();
@@ -149,7 +150,7 @@ export default class Preview extends View {
   }
 
   async target(file) {
-    if (!MD.has(ext(file))) return file;
+    if (isUrl(file) || !MD.has(ext(file))) return file;
     const page = `${await cacheDir()}/${basename(file).replace(/[^\w.-]+/g, "_")}-${hash(file)}.html`;
     await writeFile(page, await markdownPage(file));
     return page;
@@ -168,7 +169,7 @@ export default class Preview extends View {
         await writeFile(`${await cacheDir()}/target`, `${Date.now()}\t${target}`);
         this.file = file;
         this.status = "";
-        if (file) this.watch(file, cx);
+        if (file && !isUrl(file)) this.watch(file, cx);
       } catch (e) {
         this.status = `Preview failed: ${e}`;
       } finally {
