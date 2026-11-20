@@ -14,6 +14,14 @@ export TERMINAL_BROWSER_NO_TELEMETRY="${TERMINAL_BROWSER_NO_TELEMETRY:-1}"
 # Overrides, e.g. TERMINAL_BROWSER_FRAMES=file (see README).
 [ -f "$HOME/.config/herdr-preview/env" ] && . "$HOME/.config/herdr-preview/env"
 export PIXEL_DISPLAY_SCALE="${PIXEL_DISPLAY_SCALE:-1}"
+# terminal-browser replaces each frame by deleting the shown image before
+# sending the next, and Herdr paints the gap: animated pages blink. The proxy
+# double-buffers the frames. HP_KITTY_PROXY=0 runs terminal-browser directly.
+launcher=()
+proxy="$(dirname "$0")/hp-kitty-proxy"
+if [ "${HP_KITTY_PROXY:-1}" != 0 ] && [ -x "$proxy" ] && command -v python3 >/dev/null 2>&1; then
+  launcher=("$proxy" --)
+fi
 state="${HERDR_PREVIEW_STATE:-$HOME/Library/Caches/herdr-preview/target}"
 dir="$(dirname "$state")"
 mkdir -p "$dir"
@@ -72,7 +80,7 @@ while :; do
     ) &
     watcher=$!
     started=$SECONDS
-    bash -c 'echo $$ > "$1"; exec terminal-browser open "$2" --no-merge' _ "$pidfile" "$target"
+    bash -c 'pf="$1" t="$2"; shift 2; echo $$ > "$pf"; exec "$@" terminal-browser open "$t" --no-merge' _ "$pidfile" "$target" "${launcher[@]}"
     kill "$watcher" 2>/dev/null
     wait "$watcher" 2>/dev/null
     [ "$(read_state)" != "$current" ] && break        # switched: show the new state

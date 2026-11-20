@@ -27,6 +27,7 @@ puts one long-lived terminal in a new panel and drives terminal-browser in it.
 |---|---|
 | `mods/hp-preview` | The panel's header (file name, Reload, Browser, Close). Renders Markdown to a GitHub-styled HTML page, watches the file, tells the panel what to show. |
 | `bin/hp-browser` | Runs in the panel's terminal and never exits (Herdr removes a layout terminal block whose program ends). Starts and restarts terminal-browser on the requested file. |
+| `bin/hp-kitty-proxy` | Sits between terminal-browser and the panel's terminal and double-buffers its frames, so animated pages don't blink (see Notes). |
 | `bin/hp-preview` | `hp-preview open <file>` / `hp-preview close` from any shell or agent. |
 | `mods/hp-files` | Herdr's Files panel plus a **Preview** button for `.html`/`.md`/`.svg` files. |
 | `mods/hp-tabs` | Herdr's tab bar plus the **Preview** panel button. |
@@ -77,6 +78,14 @@ Delete the file to go back to the defaults. Changes apply to the next preview.
 
 ## Notes
 
+- terminal-browser replaces each frame by deleting the shown image and then
+  sending the next one under the same id. Herdr desktop paints the moment in
+  between, so an animated page blinks out about once a second. `hp-kitty-proxy`
+  (Python 3, run by `hp-browser`) sends each new frame under a second id and
+  deletes the old image only after the new one has arrived. Set
+  `HP_KITTY_PROXY=0` in `~/.config/herdr-preview/env` to run terminal-browser
+  directly. Without `python3` the proxy is skipped.
+
 - herdr-preview sets `TERMINAL_BROWSER_NO_TELEMETRY=1` for the browsers it starts.
 - The `preview` layout is a copy of Herdr's `main` layout. If a Herdr update changes
   `main`, re-run `./install.sh` after updating this repo.
@@ -112,6 +121,10 @@ cd herdr-preview
 Herdr의 mod는 웹뷰를 쓸 수 없지만, Herdr 터미널은 Kitty 그래픽 프로토콜을 지원해요.
 terminal-browser가 Chromium 화면을 터미널에 직접 그리기 때문에, Preview 패널에 상주 터미널을 하나 두고
 그 안에서 terminal-browser를 띄우는 방식이에요.
+
+terminal-browser는 프레임을 바꿀 때 이전 이미지를 먼저 지우고 새 이미지를 보내는데, Herdr가 그 사이를
+그려서 애니메이션이 있는 페이지가 깜빡여요. `hp-kitty-proxy`가 새 프레임을 다른 id로 받은 뒤에 이전
+이미지를 지우는 더블 버퍼링으로 이걸 막아요. 끄려면 `~/.config/herdr-preview/env`에 `HP_KITTY_PROXY=0`을 넣으세요.
 
 ## License
 

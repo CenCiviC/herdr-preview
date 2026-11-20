@@ -42,6 +42,7 @@ cp "$here/layouts/preview.json" "$layout"
 
 install -m 755 "$here/bin/hp-browser" "$bin_dir/hp-browser"
 install -m 755 "$here/bin/hp-preview" "$bin_dir/hp-preview"
+install -m 755 "$here/bin/hp-kitty-proxy" "$bin_dir/hp-kitty-proxy"
 
 # The panel's terminal must exist before the layout first shows it.
 if command -v hc >/dev/null 2>&1; then

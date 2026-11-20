@@ -7,5 +7,5 @@ if command -v herdr-app >/dev/null 2>&1 && herdr-app status >/dev/null 2>&1; the
   herdr-app do layout.switch --name main >/dev/null || true
 fi
 for name in hp-files hp-tabs hp-preview; do rm -rf "${app_home:?}/mods/$name"; done
-rm -f "$app_home/layouts/preview.json" "$bin_dir/hp-browser" "$bin_dir/hp-preview"
+rm -f "$app_home/layouts/preview.json" "$bin_dir/hp-browser" "$bin_dir/hp-preview" "$bin_dir/hp-kitty-proxy"
 echo "Removed herdr-preview."

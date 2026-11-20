@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""hp-kitty-proxy: run a program in a PTY and double-buffer its kitty graphics.
+
+terminal-browser replaces each frame by deleting the shown image and then
+transmitting the next one under the same id (`a=d,d=i,i=1` then `a=T,i=1,...`).
+Until the last chunk of the new image arrives the pane holds no image, and
+Herdr desktop paints that gap: the page blinks out about once a second.
+
+This proxy holds such a delete back, sends the new frame under an alternate id,
+and deletes the old image only once the new one is complete, so there is
+always an image on screen. Everything else passes through unchanged.
+
+usage: hp-kitty-proxy [--log FILE] [--] <program> [args...]
+"""
+import errno
+import fcntl
+import os
+import pty
+import select
+import signal
+import sys
+import termios
+import time
+import tty
+
+APC = b"\x1b_G"
+ST = b"\x1b\\"
+ALT = 1 << 20  # second id of each double-buffered pair
+
+
+def parse_head(head):
+    keys = []
+    for part in head.split(b","):
+        if not part:
+            continue
+        k, _, v = part.partition(b"=")
+        keys.append([k, v])
+    return keys
+
+
+def get(keys, k, default=None):
+    for kk, v in keys:
+        if kk == k:
+            return v
+    return default
+
+
+def put(keys, k, v):
+    for kv in keys:
+        if kv[0] == k:
+            kv[1] = v
+            return
+
+
+def build(keys, payload):
+    head = b",".join(k + b"=" + v for k, v in keys)
+    return APC + head + (b";" + payload if payload is not None else b"") + ST
+
+
+class Rewriter:
+    def __init__(self, log=None):
+        self.buf = b""
+        self.shown = {}       # logical id -> id actually on screen
+        self.held = {}        # logical id -> held delete (keys)
+        self.cont = None      # chunked transmission in progress
+        self.log = log
+
+    def feed(self, data):
+        """Returns the bytes to write now."""
+        self.buf += data
+        out = []
+        while True:
+            s = self.buf.find(APC)
+            if s < 0:
+                # Keep a trailing partial "\x1b_" for the next read.
+                keep = 0
+                for n in (2, 1):
+                    if APC.startswith(self.buf[-n:]) and len(self.buf) >= n:
+                        keep = n
+                        break
+                if keep:
+                    out.append(self.buf[:-keep])
+                    self.buf = self.buf[-keep:]
+                else:
+                    out.append(self.buf)
+                    self.buf = b""
+                break
+            e = self.buf.find(ST, s + 3)
+            if e < 0:
+                out.append(self.buf[:s])
+                self.buf = self.buf[s:]
+                break
+            out.append(self.buf[:s])
+            out.append(self.command(self.buf[s + 3:e]))
+            self.buf = self.buf[e + 2:]
+        return b"".join(out)
+
+    def flush_held(self):
+        out = []
+        for logical, keys in self.held.items():
+            put(keys, b"i", self.shown.get(logical, logical))
+            out.append(build(keys, None))
+        self.held.clear()
+        return b"".join(out)
+
+    def finish(self, info):
+        logical, old, new = info
+        self.shown[logical] = new
+        if old != new:
+            return APC + b"a=d,d=I,i=" + old + b",q=2" + ST
+        return b""
+
+    def command(self, body):
+        head, sep, payload = body.partition(b";")
+        if not sep:
+            payload = None
+        keys = parse_head(head)
+        a = get(keys, b"a", b"t")
+        i = get(keys, b"i")
+        more = get(keys, b"m", b"0") == b"1"
+
+        # Continuation chunk of a chunked transmission: only m= (and q=).
+        if self.cont is not None and get(keys, b"a") is None and i is None:
+            raw = APC + body + ST
+            if more:
+                return raw
+            info, self.cont = self.cont, None
+            return raw + (self.finish(info) if info else b"")
+
+        # Placement delete of one image: hold it until the next frame lands.
+        if a == b"d" and get(keys, b"d") == b"i" and i is not None:
+            self.held[i] = keys
+            return b""
+
+        # Next frame for an image whose delete we hold: send it under the other id.
+        if a == b"T" and i is not None and i in self.held:
+            del self.held[i]
+            old = self.shown.get(i, i)
+            new = str(int(i) + ALT).encode() if old == i else i
+            put(keys, b"i", new)
+            info = (i, old, new)
+            if more:
+                self.cont = info
+                return build(keys, payload)
+            return build(keys, payload) + self.finish(info)
+
+        out = self.flush_held()
+        if a == b"d":
+            d = get(keys, b"d", b"a")
+            if d in (b"a", b"A"):
+                self.shown.clear()
+            elif i is not None and i in self.shown:
+                put(keys, b"i", self.shown.pop(i))
+        elif i is not None and i in self.shown and a != b"q":
+            put(keys, b"i", self.shown[i])
+        if more and a in (b"t", b"T", b"f"):
+            self.cont = False  # plain chunked transmission, nothing to finish
+        return out + build(keys, payload)
+
+
+def main():
+    argv = sys.argv[1:]
+    log = None
+    if argv[:1] == ["--log"]:
+        log = open(argv[1], "a", buffering=1)
+        argv = argv[2:]
+    if argv[:1] == ["--"]:
+        argv = argv[1:]
+    if not argv:
+        sys.exit(__doc__)
+
+    pid, master = pty.fork()
+    if pid == 0:
+        try:
+            os.execvp(argv[0], argv)
+        except OSError as e:
+            sys.stderr.write(f"hp-kitty-proxy: {argv[0]}: {e}\n")
+            os._exit(127)
+
+    stdin, stdout = sys.stdin.fileno(), sys.stdout.fileno()
+
+    def copy_winsize(*_):
+        try:
+            ws = fcntl.ioctl(stdin, termios.TIOCGWINSZ, b"\0" * 8)
+            fcntl.ioctl(master, termios.TIOCSWINSZ, ws)
+            os.kill(pid, signal.SIGWINCH)
+        except OSError:
+            pass
+
+    def forward(sig, _frame):
+        try:
+            os.kill(pid, sig)
+        except OSError:
+            pass
+
+    copy_winsize()
+    signal.signal(signal.SIGWINCH, copy_winsize)
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, forward)
+
+    saved = None
+    try:
+        saved = termios.tcgetattr(stdin)
+        tty.setraw(stdin)
+    except termios.error:
+        pass
+
+    rw = Rewriter()
+    t0 = time.monotonic()
+    parent = os.getppid()
+    status = None
+    try:
+        while True:
+            # The pty never reports EOF while a helper of the program still
+            # holds it, and a closed panel can leave stdin revoked but silent:
+            # check on the child and on our parent instead of waiting forever.
+            done, st = os.waitpid(pid, os.WNOHANG)
+            if done:
+                status = st
+                break
+            if os.getppid() != parent:
+                break
+            try:
+                r, _, _ = select.select([stdin, master], [], [], 0.5)
+            except InterruptedError:
+                continue
+            if master in r:
+                try:
+                    data = os.read(master, 1 << 20)
+                except OSError as e:
+                    if e.errno == errno.EIO:
+                        break
+                    raise
+                if not data:
+                    break
+                data = rw.feed(data)
+                if log and data:
+                    log.write(f"{time.monotonic() - t0:9.4f} out {len(data)}B\n")
+                view = memoryview(data)
+                while view:
+                    try:
+                        view = view[os.write(stdout, view):]
+                    except BlockingIOError:
+                        select.select([], [stdout], [])
+            if stdin in r:
+                data = os.read(stdin, 65536)
+                if not data:
+                    break
+                os.write(master, data)
+    except OSError:
+        pass
+    finally:
+        if saved:
+            try:
+                termios.tcsetattr(stdin, termios.TCSAFLUSH, saved)
+            except termios.error:
+                pass
+    if status is None:
+        status = stop_child(pid)
+    sys.exit(os.waitstatus_to_exitcode(status) if status is not None else 0)
+
+
+def stop_child(pid):
+    """End the program if it is still running; returns its wait status."""
+    for sig, wait in ((None, 0.5), (signal.SIGTERM, 2.0), (signal.SIGKILL, 2.0)):
+        try:
+            if sig is not None:
+                os.kill(pid, sig)
+            deadline = time.monotonic() + wait
+            while time.monotonic() < deadline:
+                done, status = os.waitpid(pid, os.WNOHANG)
+                if done:
+                    return status
+                time.sleep(0.05)
+        except (ChildProcessError, ProcessLookupError):
+            return None
+    return None
+
+
+if __name__ == "__main__":
+    main()
